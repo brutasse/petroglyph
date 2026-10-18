@@ -15,8 +15,8 @@ No configuration required.
   `[!CAUTION]`, with titles.
 - Code fences highlighted by [chroma](https://github.com/alecthomas/chroma)
   with CSS classes, using the `github` style.
-- Mermaid fences rendered as `<pre class="mermaid">` for your browser-side
-  mermaid library.
+- Mermaid fences rendered as `<pre class="mermaid">` for a client-side
+  renderer such as [Pele](https://pele.run).
 - Math with `$...$`, `$$...$$`, `\(...\)`, and `\[...\]`, converted to
   MathJax delimiters.
 - YAML front matter rendered as a table above the document.
@@ -48,7 +48,7 @@ if flags.Math {
     // load MathJax
 }
 if flags.Mermaid {
-    // load mermaid
+    // load Pele, then pele.mount(el, el.textContent) on each pre.mermaid
 }
 ```
 
@@ -76,7 +76,7 @@ library ships no CSS.
 | `.frontmatter` | table generated from YAML front matter |
 | `.codeblock` | wrapper div around a highlighted code fence |
 | `.chroma` | chroma-generated code markup (class-based) |
-| `.mermaid` | `<pre>` holding a mermaid diagram source |
+| `.mermaid` | `<pre>` holding a mermaid diagram source: the container a client-side renderer mounts into |
 | `.markdown-alert` `.markdown-alert-note` and friends | alert blockquotes |
 | `.markdown-alert-title` | title paragraph inside an alert |
 | `.heading-anchor` | the `#` permalink link inside a heading |
@@ -99,8 +99,18 @@ the full markup, or use it as a fixture in your own stylesheet work.
 
 Math output uses the `\(...\)` and `\[...\]` delimiters, which MathJax
 activates by default. A page shows math by loading MathJax when
-`Flags.Math` is set. A page shows diagrams by loading mermaid with
-`startOnLoad: true` when `Flags.Mermaid` is set.
+`Flags.Math` is set. A page shows diagrams by loading
+[Pele](https://pele.run) and mounting each `pre.mermaid` when
+`Flags.Mermaid` is set:
+
+```js
+for (const el of document.querySelectorAll('pre.mermaid'))
+    pele.mount(el, el.textContent, { links: false, images: false });
+```
+
+`mount()` needs no initialization call, sizes each diagram to its
+container, and shows a syntax error in place instead of throwing. Diagram
+colors come from Pele's `--pele-*` CSS variables.
 
 ## Safety
 

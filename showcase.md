@@ -143,8 +143,8 @@ this info string matches no lexer and falls back to plain text
 
 ## Diagrams
 
-A ` ```mermaid ` fence loads the bundled Mermaid library only on pages that
-need it:
+A ` ```mermaid ` fence loads the vendored [Pele](https://pele.run) script
+only on pages that need it:
 
 ```mermaid
 graph LR
