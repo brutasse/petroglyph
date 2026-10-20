@@ -33,7 +33,7 @@ import (
 // the template loads only the vendored JS actually required.
 type Flags struct {
 	Math    bool // TeX math present: load MathJax
-	Mermaid bool // mermaid fence present: load Pele
+	Mermaid bool // mermaid fence present: load a client-side renderer
 }
 
 // GFM extends a goldmark instance with the full feature set and no

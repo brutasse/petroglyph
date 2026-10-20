@@ -16,7 +16,7 @@ No configuration required.
 - Code fences highlighted by [chroma](https://github.com/alecthomas/chroma)
   with CSS classes, using the `github` style.
 - Mermaid fences rendered as `<pre class="mermaid">` for a client-side
-  renderer such as [Pele](https://pele.run).
+  renderer: [Mermaid](https://mermaid.js.org) or [Pele](https://pele.run).
 - Math with `$...$`, `$$...$$`, `\(...\)`, and `\[...\]`, converted to
   MathJax delimiters.
 - YAML front matter rendered as a table above the document.
@@ -48,7 +48,7 @@ if flags.Math {
     // load MathJax
 }
 if flags.Mermaid {
-    // load Pele, then pele.mount(el, el.textContent) on each pre.mermaid
+    // load a mermaid renderer: Mermaid or Pele
 }
 ```
 
@@ -76,7 +76,7 @@ library ships no CSS.
 | `.frontmatter` | table generated from YAML front matter |
 | `.codeblock` | wrapper div around a highlighted code fence |
 | `.chroma` | chroma-generated code markup (class-based) |
-| `.mermaid` | `<pre>` holding a mermaid diagram source: the container a client-side renderer mounts into |
+| `.mermaid` | `<pre>` holding a mermaid diagram source: the container a client-side renderer draws into |
 | `.markdown-alert` `.markdown-alert-note` and friends | alert blockquotes |
 | `.markdown-alert-title` | title paragraph inside an alert |
 | `.heading-anchor` | the `#` permalink link inside a heading |
@@ -95,22 +95,61 @@ f.WriteCSS(css, styles.Get("github"))
 `showcase.md` exercises every feature. Render it with `Convert` to inspect
 the full markup, or use it as a fixture in your own stylesheet work.
 
-## Math and mermaid
+## Math and diagrams
 
 Math output uses the `\(...\)` and `\[...\]` delimiters, which MathJax
 activates by default. A page shows math by loading MathJax when
-`Flags.Math` is set. A page shows diagrams by loading
-[Pele](https://pele.run) and mounting each `pre.mermaid` when
-`Flags.Mermaid` is set:
+`Flags.Math` is set.
 
-```js
-for (const el of document.querySelectorAll('pre.mermaid'))
-    pele.mount(el, el.textContent, { links: false, images: false });
+A ` ```mermaid ` fence becomes `<pre class="mermaid">` and sets
+`Flags.Mermaid`. petroglyph ships no diagram code. The page picks a
+client-side renderer, and that renderer replaces the contents of each
+`pre.mermaid` with its own SVG. Load one renderer per page: Mermaid and
+Pele both read the diagram source from the `<pre>` element, so the second
+one draws over the first.
+
+### Mermaid
+
+[Mermaid](https://mermaid.js.org) scans `pre.mermaid` elements by itself,
+so `startOnLoad` is the only call a static page needs:
+
+```html
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true });
+</script>
+```
+
+Call `mermaid.run()` yourself when parts of the page arrive after load.
+`securityLevel` defaults to `strict`: Mermaid escapes HTML in diagram text
+and disables click handlers. Keep that level for documents you do not
+trust. Themes come from `mermaid.initialize` (`theme`, `themeVariables`),
+and Mermaid adds its own stylesheet rules to the page. Bundle the library
+with `npm install mermaid` instead of the CDN.
+
+### Pele
+
+[Pele](https://pele.run) renders a diagram when you call `mount()`. The
+browser script defines the global `pele`:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/pele@1/dist/pele.global.js"></script>
+<script>
+  for (const el of document.querySelectorAll('pre.mermaid'))
+      pele.mount(el, el.textContent, { links: false, images: false });
+</script>
 ```
 
 `mount()` needs no initialization call, sizes each diagram to its
-container, and shows a syntax error in place instead of throwing. Diagram
-colors come from Pele's `--pele-*` CSS variables.
+container, redraws on container resize and on web-font load, and shows a
+syntax error in place instead of throwing. Diagram colors come from the
+`--pele-*` CSS variables, set on `.pele` or on any ancestor element.
+
+The `links` and `images` options carry weight for untrusted documents.
+Pele allows `http`, `https`, `mailto`, and `tel` links and `http` and
+`https` images by default, and setting both options to `false` removes
+them. Bundle the library with `npm install pele` and
+`import { mount } from 'pele'` instead of the CDN.
 
 ## Safety
 

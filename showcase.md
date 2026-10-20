@@ -143,8 +143,9 @@ this info string matches no lexer and falls back to plain text
 
 ## Diagrams
 
-A ` ```mermaid ` fence loads the vendored [Pele](https://pele.run) script
-only on pages that need it:
+A ` ```mermaid ` fence sets `Flags.Mermaid`, so the page loads a
+client-side renderer — [Mermaid](https://mermaid.js.org) or
+[Pele](https://pele.run) — only when the document needs one:
 
 ```mermaid
 graph LR
