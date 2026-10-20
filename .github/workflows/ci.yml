@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Only for the gofmt step, which pushes its fix back to the branch.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push events, where checkout falls back to the pushed ref.
+          # On pull_request this takes the head branch instead of the merge ref
+          # so the gofmt commit lands on the branch it formats. Consequence: a
+          # PR is built against its own branch, not against the merge with base.
+          ref: ${{ github.head_ref }}
+          # Pushing from a shallow clone is rejected, and this repo is small.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Unformatted code is a machine problem, so fix and commit it rather than
+      # fail the run. Pushes made with GITHUB_TOKEN start no new run, so this
+      # cannot loop; the pushed commit simply gets tested by the next push.
+      # The step always succeeds and the steps below run on the formatted tree.
+      - name: gofmt
+        env:
+          PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt -w applied to:"
+            echo "$unformatted"
+            gofmt -w .
+
+            # On a pull_request GITHUB_REF is the merge ref, so the head branch
+            # comes from github.head_ref. A tag push has neither, and the fix
+            # stays local.
+            case "$GITHUB_REF" in
+              refs/heads/*) branch="$GITHUB_REF_NAME" ;;
+              *) branch="$PR_BRANCH" ;;
+            esac
+
+            if [ -z "$branch" ]; then
+              echo "::warning::formatted locally, nothing to push ($GITHUB_REF)"
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -u
+              # Commit and push failures stay warnings: formatting is never a
+              # reason to fail a run. Fork pull requests get a read-only token,
+              # and branch protection can deny the push too.
+              if git commit -q -m "gofmt"; then
+                if git push -q origin "HEAD:$branch"; then
+                  echo "Pushed a gofmt fix to \`$branch\`." >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "::warning::could not push the gofmt fix to $branch"
+                fi
+              else
+                echo "::warning::could not commit the gofmt fix"
+              fi
+            fi
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      # Untrusted markdown reaches goldmark and bluemonday, so catch data races
+      # even though the suite runs in seconds. -count=1 bypasses the test cache.
+      - name: test
+        run: go test -race -count=1 ./...
