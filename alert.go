@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/text"
 )
 
 var alertMarkers = map[string]string{
@@ -46,7 +46,7 @@ func (alertTransformer) Transform(doc *ast.Document, reader text.Reader, pc pars
 			if !ok {
 				return ast.WalkContinue, nil
 			}
-			line = append(line, t.Segment.Value(source)...)
+			line = append(line, t.Value.Bytes(source)...)
 			if t.SoftLineBreak() {
 				break
 			}
@@ -61,21 +61,23 @@ func (alertTransformer) Transform(doc *ast.Document, reader text.Reader, pc pars
 			if t, ok := c.(*ast.Text); ok {
 				soft = t.SoftLineBreak()
 			}
-			p.RemoveChild(p, c)
+			p.RemoveChild(c)
 			if soft {
 				break
 			}
 			c = next
 		}
 		if t, ok := p.FirstChild().(*ast.Text); ok { // trim " > " leftovers
-			for t.Segment.Start < t.Segment.Stop && source[t.Segment.Start] == ' ' {
-				t.Segment.Start++
+			idx := t.Value.Index()
+			for idx.Start < idx.Stop && source[idx.Start] == ' ' {
+				idx.Start++
 			}
+			t.Value = text.NewSingleLineValueFromIndex(idx, reader.Decoder())
 		}
 		if !p.HasChildren() {
-			bq.RemoveChild(bq, p)
+			bq.RemoveChild(p)
 		}
-		bq.SetAttribute([]byte("class"), []byte("markdown-alert markdown-alert-"+typ))
+		bq.SetAttribute("class", text.NewMultiLineValueFromString("markdown-alert markdown-alert-"+typ, text.IdentityDecoder))
 		return ast.WalkContinue, nil
 	})
 }

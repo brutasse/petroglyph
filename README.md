@@ -57,11 +57,15 @@ This keeps pages free of JavaScript they do not use.
 
 ### Lower-level API
 
-- `petroglyph.GFM` is a `goldmark.Extender`. Compose it into your own
-  goldmark pipeline when you want control over parsing or rendering. You
-  then sanitize the output yourself.
-- `petroglyph.New()` returns a goldmark instance with the extension
-  applied. Use it with `petroglyph.Needs(doc, source)` when you already
+- `petroglyph.GFMParser` and `petroglyph.GFMHTMLRenderer` are the
+  [goldmark v2](https://github.com/yuin/goldmark) extensions behind `Convert`.
+  Pass them to `parser.WithExtensions` and `html.WithExtensions` when you want
+  control over parsing or rendering. You then sanitize the output yourself.
+  `GFMHTMLRenderer` has to stay last in a longer extension list: goldmark lets
+  the last extension win each node kind, which is how the fence, heading,
+  image and math renderers replace the defaults.
+- `petroglyph.New()` returns a `*Markdown` holding the configured parser and
+  HTML renderer. Use it with `petroglyph.Needs(doc, source)` when you already
   hold the parsed document.
 - `petroglyph.DisplayPolicy()` returns the bluemonday policy `Convert`
   applies. Reuse it to sanitize other markup the same way.

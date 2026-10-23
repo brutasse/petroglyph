@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	htmlrenderer "github.com/yuin/goldmark/renderer/html"
+	htmlrenderer "github.com/yuin/goldmark/v2/renderer/html"
 )
 
 func TestRenderMarkdownFences(t *testing.T) {
@@ -95,6 +95,19 @@ func TestFencedCodeTextIsPreserved(t *testing.T) {
 				t.Errorf("rendered code text\n got: %q\nwant: %q", got, want)
 			}
 		})
+	}
+}
+
+func TestRenderMarkdownIndentedCode(t *testing.T) {
+	// goldmark v2 gives indented and fenced code one node kind, so this
+	// package's code-block renderer sees indented blocks too. They keep
+	// CommonMark's shape: no copy wrapper, no chroma, no language class.
+	body, _ := Convert("    indented <html>\n    line two\n")
+	if want := "<pre><code>indented &lt;html&gt;\nline two\n</code></pre>\n"; !strings.Contains(body, want) {
+		t.Errorf("indented code block altered:\n got: %q\nwant: %q", body, want)
+	}
+	if strings.Contains(body, "codeblock") || strings.Contains(body, "chroma") {
+		t.Errorf("indented code block got fence treatment: %s", body)
 	}
 }
 
@@ -462,12 +475,12 @@ func TestRenderMarkdownDataURLImage(t *testing.T) {
 }
 
 func TestGoldmarkSVGDataURLIsDangerous(t *testing.T) {
-	// Pinned to goldmark >= v1.8.6: that release stopped classifying
-	// data:image/svg+xml as safe. DisplayPolicy blocks data: anyway; this
-	// keeps the goldmark-side check honest should the unsafe flag or the
-	// policy ever change. Fails on goldmark < v1.8.6.
-	if !htmlrenderer.IsDangerousURL([]byte("data:image/svg+xml;base64,PHN2Zy8+")) {
-		t.Error("goldmark treats SVG data URIs as safe; need >= v1.8.6")
+	// goldmark stopped classifying data:image/svg+xml as safe in v1.8.6, and
+	// v2 keeps it that way. DisplayPolicy blocks data: anyway; this keeps the
+	// goldmark-side check honest should the unsafe flag or the policy ever
+	// change.
+	if !htmlrenderer.IsDangerousURL("data:image/svg+xml;base64,PHN2Zy8+") {
+		t.Error("goldmark treats SVG data URIs as safe")
 	}
 }
 
@@ -485,6 +498,17 @@ func TestHeadingSlugs(t *testing.T) {
 		{"leading-dash-kept", "# - Dash", `id="--dash"`, ""},
 		{"emoji", "# :tada: party", `id="party"`, ""},
 		{"setext", "Title\n=====\n", `id="title"`, ""},
+		{
+			// a code span's text is part of what the heading reads as, and
+			// it is literal source: no entity decoding.
+			"code-span", "## Using `pg_restore` today", `id="using-pg_restore-today"`, "",
+		},
+		{"code-span-literal", "# span `a &amp; b` here", `id="span-a-amp-b-here"`, ""},
+		{
+			// prose text slugs as rendered, so an entity reference slugs as
+			// the character it stands for.
+			"entity-decoded", "# a &amp; b", `id="a--b"`, "",
+		},
 		{"math-skipped", `# $x_i$ y`, `id="y"`, ""},
 		{
 			// the URL must not bake itself into the id, and the
