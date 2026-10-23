@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  // Weekly, not per-release: every dependency here is load-bearing for the
+  // render output, so updates want one review pass with the test suite.
+  "schedule": ["before 6am on monday"],
+  // A Go major bump changes the module path to /vN, and Renovate edits only
+  // the requirement lines unless told otherwise: the result is a PR that
+  // builds the old module, imports nothing from the new one, and carries
+  // go.sum lines with no h1 hash. Rewrite the import paths and tidy.
+  "postUpdateOptions": ["gomodUpdateImportPaths", "gomodTidy"],
+  "packageRules": [
+    {
+      // The x/ modules are cut from one release train and only work as a set.
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["golang.org/x/*"],
+      "groupName": "golang.org/x"
+    },
+    {
+      // goldmark-emoji depends on goldmark at the same major, so a document
+      // can only import one pair: v1 with v1, v2 with v2. Two PRs would each
+      // be either inert or broken.
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/yuin/goldmark",
+        "github.com/yuin/goldmark/*",
+        "github.com/yuin/goldmark-emoji",
+        "github.com/yuin/goldmark-emoji/*"
+      ],
+      "groupName": "goldmark"
+    }
+  ]
+}
