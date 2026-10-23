@@ -19,10 +19,10 @@ Pure CJK: [Tokyo](#東京).
 
 Digit and dot: [five](#5-kafka).
 
-## Section {#custom-target}
+## C -- D
 
-Custom wins: [target](#custom-target).
+GitHub keeps the run: [dashes](#c----d).
 
-## Section
+## Hello , World
 
-Plain duplicate, no link.
+The comma goes and both spaces leave a hyphen: [hello](#hello--world).

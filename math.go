@@ -14,21 +14,20 @@ import (
 )
 
 // Math parses as regular AST nodes: a span inside a line becomes an inline
-// node, and a $$...$$ or \[...\] block with the delimiters on their own
-// lines becomes a block node. Content renders as escaped text in canonical
-// TeX delimiters ($$..$$ and \[..\] render as \[..\], $..$ and \(..\) as
-// \(..\)). MathJax is configured for TeX delimiters only, so dollar-form
-// text the parser deliberately left alone (money) can never be re-detected
-// by MathJax's own, laxer scanner. Code spans and fences never reach the
-// inline parser: they consume their trigger bytes (backticks) earlier in
-// the line, so math-looking text inside them is untouched.
+// node, and a $$...$$ block with the delimiters on their own lines becomes a
+// block node. Content renders as escaped text in the TeX delimiters MathJax
+// is configured for ($..$ becomes \(..\) and a $$ block becomes \[..\]),
+// which is why a dollar-form pair the parser deliberately left alone (money)
+// can never be re-detected by MathJax's own, laxer scanner. Code spans and
+// fences never reach the inline parser: they consume their trigger bytes
+// (backticks) earlier in the line, so math-looking text inside them is
+// untouched. GitHub reads only these two dollar forms, so no backslash
+// delimiters are parsed: "\(x\)" is an escaped parenthesis on both sides.
 
 var (
-	// All four are anchored at position 0: the parser triggers at the
-	// opening delimiter and must match from there.
-	mathDisplayTex = regexp.MustCompile(`^\\\[(.+?)\\\]`)
-	mathDisplay    = regexp.MustCompile(`^\$\$(.+?)\$\$`)
-	mathInlineTex  = regexp.MustCompile(`^\\\((.+?)\\\)`)
+	// Both are anchored at position 0: the parser triggers at the opening
+	// delimiter and must match from there.
+	mathDisplay = regexp.MustCompile(`^\$\$(.+?)\$\$`)
 	// Inline $...$: same line, non-empty, no space right after the opening
 	// or before the closing delimiter ("$5 and $6" is money, not math).
 	mathDollar = regexp.MustCompile(`^\$(\S(?:[^$\n]*\S)?)\$`)
@@ -38,9 +37,7 @@ var mathSpanRules = []struct {
 	re      *regexp.Regexp
 	display bool
 }{
-	{mathDisplayTex, true},
 	{mathDisplay, true},
-	{mathInlineTex, false},
 	{mathDollar, false},
 }
 
@@ -67,7 +64,7 @@ func (n *mathNode) Dump(source []byte, level int) {
 
 type mathInlineParser struct{}
 
-func (mathInlineParser) Trigger() []byte { return []byte{'$', '\\'} }
+func (mathInlineParser) Trigger() []byte { return []byte{'$'} }
 
 func (mathInlineParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
 	line, seg := block.PeekLine()
@@ -85,9 +82,9 @@ func (mathInlineParser) Parse(parent ast.Node, block text.Reader, pc parser.Cont
 	return nil
 }
 
-// mathBlockNode is a display block delimited by standalone "$$" or "\["
-// lines. When the document runs out before the closing delimiter, the
-// source renders as literal text instead of math.
+// mathBlockNode is a display block delimited by standalone "$$" lines. When
+// the document runs out before the closing delimiter, the source renders as
+// literal text instead of math.
 type mathBlockNode struct {
 	ast.BaseBlock
 	opener string
@@ -103,11 +100,11 @@ func (n *mathBlockNode) Dump(source []byte, level int) {
 	}, nil)
 }
 
-var mathBlockDelims = map[string]string{"$$": "$$", `\[`: `\]`}
+var mathBlockDelims = map[string]string{"$$": "$$"}
 
 type mathBlockParser struct{}
 
-func (mathBlockParser) Trigger() []byte { return []byte{'$', '\\'} }
+func (mathBlockParser) Trigger() []byte { return []byte{'$'} }
 
 func (mathBlockParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
 	line, _ := reader.PeekLine()

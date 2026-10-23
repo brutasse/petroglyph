@@ -9,15 +9,16 @@ No configuration required.
 
 - GitHub-flavored Markdown: tables, strikethrough, task lists, autolinks,
   footnotes, and emoji (`:tada:`).
-- Heading ids with permalink anchors, and explicit ids like
-  `## Heading {#custom-id}`.
+- Heading ids from GitHub's anchor rule, with permalink anchors. A
+  `## Heading {#custom-id}` suffix is text, the way GitHub reads it; keep an
+  old fragment alive with `<a name="x">`.
 - GitHub alerts: `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   `[!CAUTION]`, with titles.
 - Code fences highlighted by [chroma](https://github.com/alecthomas/chroma)
   with CSS classes, using the `github` style.
 - Mermaid fences rendered as `<pre class="mermaid">` for a client-side
   renderer: [Mermaid](https://mermaid.js.org) or [Pele](https://pele.run).
-- Math with `$...$`, `$$...$$`, `\(...\)`, and `\[...\]`, converted to
+- Math with `$...$` and `$$...$$`, the two forms GitHub reads, converted to
   MathJax delimiters.
 - YAML front matter rendered as a table above the document.
 - Sized images: `![alt](https://example.com/img.png =800x600)`.
@@ -155,7 +156,8 @@ them. Bundle the library with `npm install pele` and
 
 `Convert` renders raw HTML (goldmark unsafe mode) and then filters the
 result through `DisplayPolicy`. The policy extends bluemonday's UGC policy
-with the classes, ids, and checkbox inputs this renderer generates. Treat
+with the classes, ids, checkbox inputs, and `<a name>` anchors this renderer
+generates or documents. Treat
 the output as display-safe, not script-safe: it can carry class and
 id attributes, so do not serve your own trust-critical DOM ids that a
 document could collide with.

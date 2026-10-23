@@ -142,6 +142,26 @@ func TestRenderMarkdownMathUnterminatedBlock(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownBackslashMathNotParsed(t *testing.T) {
+	// GitHub reads the two dollar forms only, and \\( is an escaped
+	// parenthesis in CommonMark, so TeX delimiters must neither become math
+	// nor pull MathJax onto the page.
+	body, flags := Convert("Relation \\(x_i\\) holds.\n")
+	if flags.Math {
+		t.Error("inline TeX delimiters detected as math")
+	}
+	if strings.Contains(body, `\(x_i\)`) {
+		t.Errorf("TeX delimiters still canonicalized: %s", body)
+	}
+	body, flags = Convert("\\[\nx\n\\]\\n")
+	if flags.Math {
+		t.Error("display TeX delimiters detected as math")
+	}
+	if !strings.Contains(body, "x") {
+		t.Errorf("display TeX delimiter content lost: %s", body)
+	}
+}
+
 func TestRenderMarkdownMathPlaceholderText(t *testing.T) {
 	// The old masking implementation reserved MJPH<n>XJM placeholders and
 	// text shaped like one could collide with it. Node-based math has no
@@ -179,6 +199,19 @@ func TestRenderMarkdownRawHTML(t *testing.T) {
 		if strings.Contains(body, bad) {
 			t.Errorf("raw HTML leak %q", bad)
 		}
+	}
+}
+
+func TestRenderMarkdownNamedAnchor(t *testing.T) {
+	// <a name="x"> is GitHub's documented way to keep an old fragment alive
+	// when a heading moves, and an empty anchor survives the sanitizer only
+	// because its name is an allowed attribute.
+	body, _ := Convert("<a name=\"upgrade-notes\"></a>\n\n<a name=\"bad name\"></a>\n\n[a](#upgrade-notes)\n")
+	if !strings.Contains(body, `<a name="upgrade-notes"></a>`) {
+		t.Errorf("named anchor dropped: %s", body)
+	}
+	if strings.Contains(body, `name="bad name"`) {
+		t.Errorf("unconstrained anchor name kept: %s", body)
 	}
 }
 
@@ -335,22 +368,19 @@ func TestRenderMarkdownFrontMatter(t *testing.T) {
 	}
 }
 
-func TestRenderMarkdownHeadingAttributes(t *testing.T) {
-	// parser.WithAttribute: "# Heading {#custom-id}" overrides the slug,
-	// like GitHub. Unknown attribute names die in the heading attribute
-	// filter and the sanitizer.
+func TestRenderMarkdownHeadingAttributeText(t *testing.T) {
+	// GitHub has no heading attribute syntax, so a "## Heading {#custom-id}"
+	// suffix is heading text here too: it slugs in with the rest of the
+	// line, and an injected attribute still reaches neither markup nor id.
 	body, _ := Convert("# Section {#custom-id}\n\n# Unsafe {onclick=steal}\n")
-	if !strings.Contains(body, `id="custom-id"`) {
-		t.Errorf("explicit heading id lost: %s", body)
+	if !strings.Contains(body, `<h1 id="section-custom-id">Section {#custom-id}`) {
+		t.Errorf("attribute suffix not kept as text: %s", body)
 	}
-	if !strings.Contains(body, `<a class="heading-anchor" href="#custom-id"`) {
-		t.Error("permalink missing for explicit id")
+	if strings.Contains(body, `id="custom-id"`) {
+		t.Errorf("a {#id} suffix still overrides the slug: %s", body)
 	}
-	if strings.Contains(body, "onclick") || strings.Contains(body, "steal") {
+	if strings.Contains(body, " onclick=") {
 		t.Errorf("heading attribute injection survived: %s", body)
-	}
-	if !strings.Contains(body, ">Unsafe<a") {
-		t.Errorf("heading with attribute mangled: %s", body)
 	}
 }
 
@@ -401,9 +431,9 @@ func TestHeadingSlugs(t *testing.T) {
 		{"cjk", "# 東京 Tokyo", `id="東京-tokyo"`, ""},
 		{"pure-cjk", "# 東京", `id="東京"`, ""},
 		{"digit-dot", "# 5. Kafka", `id="5-kafka"`, ""},
-		{"collapse-comma", "# Hello , World", `id="hello-world"`, ""},
-		{"collapse-dashes", "# C -- D", `id="c-d"`, ""},
-		{"trim-edge-dashes", "# - Dash", `id="dash"`, ""},
+		{"comma-keeps-spaces", "# Hello , World", `id="hello--world"`, ""},
+		{"hyphen-run-kept", "# C -- D", `id="c----d"`, ""},
+		{"leading-dash-kept", "# - Dash", `id="--dash"`, ""},
 		{"emoji", "# :tada: party", `id="party"`, ""},
 		{"setext", "Title\n=====\n", `id="title"`, ""},
 		{"math-skipped", `# $x_i$ y`, `id="y"`, ""},
@@ -416,9 +446,9 @@ func TestHeadingSlugs(t *testing.T) {
 		{"collision", "# Hello World\n\n# Hello World\n", `id="hello-world-1"`, ""},
 		{"empty-fallback", "# !!!\n\n# !!!\n", `id="heading-1"`, ""},
 		{
-			// {#custom} wins and reserves the name: the plain
-			// "foo" heading behind it must dedup.
-			"custom-reserves", "# A {#foo}\n\n# foo\n", `id="foo-1"`, "",
+			// a "{#foo}" suffix is text, so it slugs like text and the
+			// plain "foo" heading behind it needs no dedup.
+			"attribute-suffix-is-text", "# A {#foo}\n\n# foo\n", `id="a-foo"`, `id="foo-1"`,
 		},
 	} {
 		body, _ := Convert(tc.src)

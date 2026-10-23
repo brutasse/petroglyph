@@ -51,13 +51,11 @@ func (h *headingRenderer) render(w util.BufWriter, source []byte, n ast.Node, en
 // inline parsing (priority just above the alertTransformer) so the slug
 // is computed from the heading's rendered text, not its source: a link's
 // URL and markup drop out ("#### [Release Notes](#release-notes)"
-// becomes "release-notes", not "release-notesrelease-notes"). A
-// "{#custom}" id parsed from the source always wins — the transformer
-// only fills empty ones — but it reserves the id too, because dropping
-// the auto option also drops goldmark's Close, which used to register
-// custom ids; without that, "# A {#foo}" plus "# foo" would both get
-// "foo". Dedup stays per-document: the used set lives in the parse
-// context, which spans one Parse.
+// becomes "release-notes", not "release-notesrelease-notes"). Nothing
+// overrides a slug from the source: GitHub reads a "# Heading {#custom}"
+// suffix as text, so it slugs into the id here like the rest of the line.
+// Dedup stays per-document: the used set lives in the parse context, which
+// spans one Parse.
 type headingIDTransformer struct{}
 
 var headingIDsKey = parser.NewContextKey()
@@ -75,10 +73,6 @@ func (headingIDTransformer) Transform(doc *ast.Document, reader text.Reader, pc 
 		}
 		h, ok := n.(*ast.Heading)
 		if !ok {
-			return ast.WalkContinue, nil
-		}
-		if id, ok := attrString(h.AttributeString("id")); ok && id != "" {
-			reserveID(used, pc, id)
 			return ast.WalkContinue, nil
 		}
 		// goldmark's empty-slug fallback, kept identical.
@@ -103,19 +97,4 @@ func (headingIDTransformer) Transform(doc *ast.Document, reader text.Reader, pc 
 func reserveID(used map[string]bool, pc parser.Context, id string) {
 	used[id] = true
 	pc.IDs().Put([]byte(id))
-}
-
-// attrString normalizes an attribute value, which goldmark stores either
-// as []byte or string depending on who set it.
-func attrString(v any, ok bool) (string, bool) {
-	if !ok {
-		return "", false
-	}
-	switch s := v.(type) {
-	case []byte:
-		return string(s), true
-	case string:
-		return s, true
-	}
-	return "", false
 }

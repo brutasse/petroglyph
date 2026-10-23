@@ -1,10 +1,10 @@
 // Package petroglyph is a Markdown-to-HTML stack: a zero-config goldmark
 // extension assembling GitHub-flavored Markdown (tables, strikethrough,
-// task lists, autolinks, footnotes, emoji) plus heading ids and permalink
-// anchors, GitHub alerts, `![alt](url =WxH)` image sizing,
-// chroma-highlighted and mermaid fences, YAML front matter, and MathJax
-// math in $...$, $$...$$, \(...\), \[...\] delimiters. Raw HTML passes
-// through the renderer for DisplayPolicy to gate, GitHub-style.
+// task lists, autolinks, footnotes, emoji) plus heading ids built by
+// GitHub's anchor rule with permalink anchors, GitHub alerts,
+// `![alt](url =WxH)` image sizing, chroma-highlighted and mermaid fences,
+// YAML front matter, and MathJax math in $...$ and $$...$$ delimiters. Raw
+// HTML passes through the renderer for DisplayPolicy to gate, GitHub-style.
 //
 // Convert is the intended entry point. The GFM extender alone composes
 // into a custom goldmark pipeline, but then raw-HTML rendering and
@@ -56,18 +56,14 @@ func (gfmExt) Extend(m goldmark.Markdown) {
 	emoji.Emoji.Extend(m)
 
 	m.Parser().AddOptions(
-		// heading ids come from the headingIDTransformer below, not
-		// parser.WithAutoHeadingID: slugs must be computed from the
-		// rendered heading text, which only exists after inline parsing.
-		// "# Heading {#id .class}" suffixes, like GitHub: the heading
-		// attribute filter drops unknown names, DisplayPolicy bounds
-		// id and class downstream.
-		parser.WithAttribute(),
-		// 50: ahead of everything else on the parser's own trigger bytes
-		// ($ and \); the inline loop consults parsers at \ before the
-		// backslash-escape pass. codespans still win over math because
-		// they trigger earlier in the line, at the backtick. sized
-		// images before footnote (101) and link (1000).
+		// parser.WithAttribute stays off: GitHub reads a "# Heading {#id}"
+		// suffix as text, so it stays text here. Heading ids come from the
+		// headingIDTransformer below, and DisplayPolicy bounds the id and
+		// class attributes those and raw HTML carry.
+		// 50: ahead of every other inline parser on math's trigger byte
+		// ($), so emphasis cannot start inside a TeX span. codespans still
+		// win over math because they trigger earlier in the line, at the
+		// backtick. sized images before footnote (101) and link (1000).
 		parser.WithInlineParsers(
 			util.Prioritized(&mathInlineParser{}, 50),
 			util.Prioritized(&sizedImageParser{}, 100),
@@ -167,6 +163,9 @@ func DisplayPolicy() *bluemonday.Policy {
 	p.AllowAttrs("id").Matching(unicodeID).OnElements("h1", "h2", "h3", "h4", "h5", "h6")
 	// The one gap in UGC vs GitHub's raw-HTML subset.
 	p.AllowElements("kbd")
+	// GitHub documents <a name="x"></a> as its custom-anchor idiom, and an
+	// anchor with no allowed attribute is dropped with its name.
+	p.AllowAttrs("name").Matching(safeID).OnElements("a")
 	return p
 }
 
