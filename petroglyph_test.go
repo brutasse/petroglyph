@@ -1,6 +1,7 @@
 package petroglyph
 
 import (
+	stdhtml "html"
 	"net/url"
 	"os"
 	"regexp"
@@ -46,6 +47,54 @@ func TestRenderMarkdownFenceInfoString(t *testing.T) {
 	}
 	if strings.Contains(body, `class="fallback"`) {
 		t.Error("fence with info attributes fell back to plain")
+	}
+}
+
+var (
+	codeInnerRE = regexp.MustCompile(`(?s)<code>(.*)</code>`)
+	anyTagRE    = regexp.MustCompile(`<[^>]*>`)
+)
+
+// codeText is what a reader sees of a highlighted fence: the markup chroma
+// adds and the entities it escapes are removed, the source text is not.
+func codeText(t *testing.T, body string) string {
+	t.Helper()
+	m := codeInnerRE.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no highlighted code element in %s", body)
+	}
+	return stdhtml.UnescapeString(anyTagRE.ReplaceAllString(m[1], ""))
+}
+
+func TestFencedCodeTextIsPreserved(t *testing.T) {
+	// Chroma may colour code, never rewrite it: chroma v2.2.0's YAML lexer
+	// emitted a block scalar's indentation twice, so a one-line literal block
+	// body rendered at double its source indent.
+	cases := []struct {
+		name string
+		lang string
+		code string
+	}{
+		{"go", "go", "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\") // say hi\n}\n"},
+		{"python", "python", "def fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n"},
+		{"sql", "sql", "SELECT name, COUNT(*) AS n\nFROM gists\nGROUP BY name\nHAVING COUNT(*) > 1;\n"},
+		{"bash", "bash", "#!/bin/sh\nfor f in *.go; do\n  grep -q 'TODO' \"$f\" || echo \"$f\"\ndone\n"},
+		{"json", "json", "{\"a\": 1, \"b\": [true, null, 1.5e3]}\n"},
+		{"html", "html", "<div class=\"x\"><a href=\"#\">t</a></div>\n"},
+		{"yaml literal one line", "yaml", "notes: |\n        one line only\n"},
+		{"yaml literal then dedent", "yaml", "notes: |\n        one\n        two\n        three\nafter: 1\n"},
+		{"yaml literal nested", "yaml", "spec:\n  env:\n    KEY: |\n        hello\n        world\n"},
+		{"yaml folded", "yaml", "notes: >-\n        folded body\n        second line\nafter: 1\n"},
+		{"yaml plain", "yaml", "key: value\nlist:\n  - a\n  - b\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body, _ := Convert("```" + c.lang + "\n" + c.code + "```\n")
+			got := codeText(t, body)
+			if want := strings.TrimRight(c.code, "\n"); got != want {
+				t.Errorf("rendered code text\n got: %q\nwant: %q", got, want)
+			}
+		})
 	}
 }
 
