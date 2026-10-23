@@ -6,8 +6,8 @@
 // YAML front matter, and MathJax math in $...$ and $$...$$ delimiters. Raw
 // HTML passes through the renderer for DisplayPolicy to gate, GitHub-style.
 //
-// Convert is the intended entry point. The GFM extender alone composes
-// into a custom goldmark pipeline, but then raw-HTML rendering and
+// Convert is the intended entry point. GFMParser and GFMHTMLRenderer
+// compose into a custom goldmark pipeline, but then raw-HTML rendering and
 // sanitizing are the caller's business.
 package petroglyph
 
@@ -18,15 +18,12 @@ import (
 	"strings"
 
 	"github.com/microcosm-cc/bluemonday"
-	"github.com/yuin/goldmark"
-	emoji "github.com/yuin/goldmark-emoji"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer"
-	htmlrenderer "github.com/yuin/goldmark/renderer/html"
-	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
+	emoji "github.com/yuin/goldmark-emoji/v2"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/extension"
+	"github.com/yuin/goldmark/v2/parser"
+	htmlrenderer "github.com/yuin/goldmark/v2/renderer/html"
+	"github.com/yuin/goldmark/v2/util"
 )
 
 // Flags tells the page which optional payloads the rendered HTML needs:
@@ -36,26 +33,41 @@ type Flags struct {
 	Mermaid bool // mermaid fence present: load a client-side renderer
 }
 
-// GFM extends a goldmark instance with the full feature set and no
-// configuration.
-var GFM goldmark.Extender = gfmExt{}
+// GFMParser and GFMHTMLRenderer hold the goldmark v2 extensions that make up
+// this package's feature set with no configuration, in the order
+// parser.WithExtensions and html.WithExtensions want them. goldmark applies
+// renderer extensions in list order and a later one wins the node-renderer
+// map, so GFMHTMLRenderer has to stay last in a longer list: its fence,
+// heading, image and math renderers replace the CommonMark ones that way.
+var GFMParser = []parser.Extension{
+	// Assembled by hand rather than extension.GFMParser so the table
+	// renderer can be configured.
+	extension.LinkifyParser,
+	extension.StrikethroughParser,
+	extension.TaskListItemParser,
+	extension.TableParser,
+	extension.FootnoteParser,
+	emoji.Parser,
+	gfmExt{},
+}
+
+var GFMHTMLRenderer = []htmlrenderer.Extension{
+	extension.StrikethroughHTMLRenderer,
+	extension.TaskListItemHTMLRenderer,
+	extension.NewTableHTMLRenderer(
+		// goldmark aligns cells with style attributes, which
+		// DisplayPolicy strips; the align attribute survives.
+		extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute),
+	),
+	extension.FootnoteHTMLRenderer,
+	emoji.HTMLRenderer,
+	gfmHTMLExt{},
+}
 
 type gfmExt struct{}
 
-func (gfmExt) Extend(m goldmark.Markdown) {
-	// Assembled by hand rather than extension.GFM so the table extension
-	// can be configured: goldmark aligns cells with style attributes,
-	// which DisplayPolicy strips; the align attribute survives.
-	extension.Linkify.Extend(m)
-	extension.Strikethrough.Extend(m)
-	extension.TaskList.Extend(m)
-	extension.NewTable(
-		extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute),
-	).Extend(m)
-	extension.Footnote.Extend(m)
-	emoji.Emoji.Extend(m)
-
-	m.Parser().AddOptions(
+func (gfmExt) ParserOptions(*parser.Config) []parser.Option {
+	return []parser.Option{
 		// parser.WithAttribute stays off: GitHub reads a "# Heading {#id}"
 		// suffix as text, so it stays text here. Heading ids come from the
 		// headingIDTransformer below, and DisplayPolicy bounds the id and
@@ -65,34 +77,51 @@ func (gfmExt) Extend(m goldmark.Markdown) {
 		// win over math because they trigger earlier in the line, at the
 		// backtick. sized images before footnote (101) and link (1000).
 		parser.WithInlineParsers(
-			util.Prioritized(&mathInlineParser{}, 50),
-			util.Prioritized(&sizedImageParser{}, 100),
+			util.Prioritized[parser.InlineParser](&mathInlineParser{}, 50),
+			util.Prioritized[parser.InlineParser](&sizedImageParser{}, 100),
 		),
 		parser.WithBlockParsers(
-			util.Prioritized(&mathBlockParser{}, 250),
+			util.Prioritized[parser.BlockParser](&mathBlockParser{}, 250),
 		),
 		parser.WithASTTransformers(
-			util.Prioritized(&alertTransformer{}, 900), // avoids footnote's 999
-			util.Prioritized(&headingIDTransformer{}, 901),
+			util.Prioritized[parser.ASTTransformer](&alertTransformer{}, 900), // avoids footnote's 999
+			util.Prioritized[parser.ASTTransformer](&headingIDTransformer{}, 901),
 		),
-	)
-	m.Renderer().AddOptions(
-		// Raw HTML reaches the sanitizer instead of being omitted;
-		// DisplayPolicy is the gate, GitHub-style.
-		htmlrenderer.WithUnsafe(),
-		renderer.WithNodeRenderers(
-			// lower priority number wins; ours override the defaults
-			util.Prioritized(&fencedRenderer{}, 200),
-			util.Prioritized(&headingRenderer{}, 200),
-			util.Prioritized(&sizedImageRenderer{}, 200),
-			util.Prioritized(&mathRenderer{}, 200),
-		),
-	)
+	}
 }
 
-// New returns a goldmark instance with the GFM extension applied.
-func New() goldmark.Markdown {
-	return goldmark.New(goldmark.WithExtensions(GFM))
+type gfmHTMLExt struct{}
+
+func (gfmHTMLExt) RendererOptions(*htmlrenderer.Config) []htmlrenderer.Option {
+	return []htmlrenderer.Option{
+		htmlrenderer.WithNodeRenderers(map[ast.NodeKind]htmlrenderer.NodeRenderer{
+			ast.KindCodeBlock: htmlrenderer.NodeRendererFunc(renderCodeBlock),
+			ast.KindHeading:   htmlrenderer.NodeRendererFunc(renderHeading),
+			kindSizedImage:    htmlrenderer.NodeRendererFunc(renderSizedImage),
+			kindMath:          htmlrenderer.NodeRendererFunc(renderMathSpan),
+			kindMathBlock:     htmlrenderer.NodeRendererFunc(renderMathBlock),
+		}),
+	}
+}
+
+// Markdown is the Markdown-to-HTML pipeline: parse with Parser, then render
+// the document with Renderer.
+type Markdown struct {
+	Parser   parser.Parser
+	Renderer htmlrenderer.Renderer
+}
+
+// New returns a Markdown with the GFM extensions applied.
+func New() *Markdown {
+	return &Markdown{
+		Parser: parser.New(parser.WithExtensions(GFMParser...)),
+		Renderer: htmlrenderer.New(
+			// Raw HTML reaches the sanitizer instead of being omitted;
+			// DisplayPolicy is the gate, GitHub-style.
+			htmlrenderer.WithUnsafe(),
+			htmlrenderer.WithExtensions(GFMHTMLRenderer...),
+		),
+	}
 }
 
 // Convert renders a whole Markdown document: the optional YAML front
@@ -104,9 +133,9 @@ func Convert(src string) (string, Flags) {
 	fmTable, body := SplitFrontMatter(src)
 	md := New()
 	source := []byte(body)
-	doc := md.Parser().Parse(text.NewReader(source))
+	doc := md.Parser.Parse(source)
 	var out bytes.Buffer
-	if err := md.Renderer().Render(&out, source, doc); err != nil {
+	if err := md.Renderer.Render(&out, source, doc); err != nil {
 		return plainPre(src), Flags{}
 	}
 	safe := string(policy.SanitizeBytes(out.Bytes()))
@@ -123,8 +152,8 @@ func Needs(doc ast.Node, source []byte) Flags {
 		switch n.Kind() {
 		case kindMath, kindMathBlock:
 			f.Math = true
-		case ast.KindFencedCodeBlock:
-			if fencedInfo(n.(*ast.FencedCodeBlock), source) == "mermaid" {
+		case ast.KindCodeBlock:
+			if fencedInfo(n.(*ast.CodeBlock), source) == "mermaid" {
 				f.Mermaid = true
 			}
 		}

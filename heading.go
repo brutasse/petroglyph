@@ -3,42 +3,29 @@ package petroglyph
 import (
 	"fmt"
 	stdhtml "html"
+	"io"
 	"strconv"
 
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer"
-	htmlrenderer "github.com/yuin/goldmark/renderer/html"
-	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/renderer"
+	htmlrenderer "github.com/yuin/goldmark/v2/renderer/html"
+	"github.com/yuin/goldmark/v2/text"
 )
 
-// headingRenderer replaces the default heading rendering: keeps the
+// renderHeading replaces the default heading rendering: keeps the
 // parser-generated slug id (or a "# Heading {#id}" override) and appends a
 // hover permalink anchor.
-type headingRenderer struct{}
-
-func (h *headingRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	reg.Register(ast.KindHeading, h.render)
-}
-
-func (h *headingRenderer) render(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func renderHeading(w io.Writer, source []byte, n ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	hn := n.(*ast.Heading)
 	if entering {
 		fmt.Fprintf(w, "<h%d", hn.Level)
-		htmlrenderer.RenderAttributes(w, n, htmlrenderer.HeadingAttributeFilter)
-		w.WriteByte('>')
+		htmlrenderer.RenderAttributes(w, source, n, htmlrenderer.HeadingAttributeFilter, rc)
+		fmt.Fprintf(w, ">")
 		return ast.WalkContinue, nil
 	}
-	if v, ok := n.Attribute([]byte("id")); ok {
-		var idStr string
-		switch id := v.(type) {
-		case []byte:
-			idStr = string(id)
-		case string:
-			idStr = id
-		}
-		if idStr != "" {
+	if id, ok := n.Attribute("id"); ok {
+		if idStr := id.Str(source); idStr != "" {
 			fmt.Fprintf(w, `<a class="heading-anchor" href="#%s" aria-label="Link to this section">#</a>`,
 				stdhtml.EscapeString(idStr))
 		}
@@ -85,7 +72,7 @@ func (headingIDTransformer) Transform(doc *ast.Document, reader text.Reader, pc 
 			id = base + "-" + strconv.Itoa(i)
 		}
 		reserveID(used, pc, id)
-		h.SetAttribute([]byte("id"), []byte(id))
+		h.SetAttribute("id", text.NewMultiLineValueFromString(id, text.IdentityDecoder))
 		return ast.WalkContinue, nil
 	})
 }

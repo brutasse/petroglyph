@@ -3,14 +3,14 @@ package petroglyph
 import (
 	"fmt"
 	stdhtml "html"
+	"io"
 	"regexp"
 	"strings"
 
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer"
-	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/renderer"
+	"github.com/yuin/goldmark/v2/text"
 )
 
 // Math parses as regular AST nodes: a span inside a line becomes an inline
@@ -56,10 +56,16 @@ type mathNode struct {
 
 func (n *mathNode) Kind() ast.NodeKind { return kindMath }
 
-func (n *mathNode) Dump(source []byte, level int) {
-	ast.DumpHelper(n, source, level, map[string]string{
-		"Display": fmt.Sprintf("%t", n.display),
-	}, nil)
+func (n *mathNode) Dump(_ []byte) *ast.NodeDump {
+	return ast.NewNodeDump(n, map[string]any{
+		"Display": n.display,
+	})
+}
+
+func newMathNode(content text.Segment, display bool) *mathNode {
+	n := &mathNode{content: content, display: display}
+	n.Init(n)
+	return n
 }
 
 type mathInlineParser struct{}
@@ -74,10 +80,7 @@ func (mathInlineParser) Parse(parent ast.Node, block text.Reader, pc parser.Cont
 			continue
 		}
 		block.Advance(m[1])
-		return &mathNode{
-			content: text.NewSegment(seg.Start+m[2], seg.Start+m[3]),
-			display: rule.display,
-		}
+		return newMathNode(text.NewSegment(seg.Start+m[2], seg.Start+m[3]), rule.display)
 	}
 	return nil
 }
@@ -94,10 +97,16 @@ type mathBlockNode struct {
 
 func (n *mathBlockNode) Kind() ast.NodeKind { return kindMathBlock }
 
-func (n *mathBlockNode) Dump(source []byte, level int) {
-	ast.DumpHelper(n, source, level, map[string]string{
-		"Opener": n.opener, "Closed": fmt.Sprintf("%t", n.closed),
-	}, nil)
+func (n *mathBlockNode) Dump(_ []byte) *ast.NodeDump {
+	return ast.NewNodeDump(n, map[string]any{
+		"Opener": n.opener, "Closed": n.closed,
+	})
+}
+
+func newMathBlockNode(opener, closer string) *mathBlockNode {
+	n := &mathBlockNode{opener: opener, closer: closer}
+	n.Init(n)
+	return n
 }
 
 var mathBlockDelims = map[string]string{"$$": "$$"}
@@ -114,7 +123,7 @@ func (mathBlockParser) Open(parent ast.Node, reader text.Reader, pc parser.Conte
 		return nil, parser.NoChildren
 	}
 	// No reader advance here: the block loop advances the opener line.
-	return &mathBlockNode{opener: opener, closer: closer}, parser.NoChildren
+	return newMathBlockNode(opener, closer), parser.NoChildren
 }
 
 func (mathBlockParser) Continue(n ast.Node, reader text.Reader, pc parser.Context) parser.State {
@@ -125,7 +134,7 @@ func (mathBlockParser) Continue(n ast.Node, reader text.Reader, pc parser.Contex
 		reader.AdvanceToEOL()
 		return parser.Close
 	}
-	mb.Lines().Append(seg)
+	mb.AppendSource(seg)
 	reader.AdvanceToEOL()
 	return parser.Continue | parser.NoChildren
 }
@@ -139,14 +148,7 @@ func (mathBlockParser) CanAcceptIndentedLine() bool { return false }
 
 func (mathBlockParser) Close(node ast.Node, reader text.Reader, pc parser.Context) {}
 
-type mathRenderer struct{}
-
-func (m *mathRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	reg.Register(kindMath, m.renderSpan)
-	reg.Register(kindMathBlock, m.renderBlock)
-}
-
-func (m *mathRenderer) renderSpan(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func renderMathSpan(w io.Writer, source []byte, n ast.Node, entering bool, _ renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
@@ -155,30 +157,24 @@ func (m *mathRenderer) renderSpan(w util.BufWriter, source []byte, n ast.Node, e
 	if mn.display {
 		open, closing = `\[`, `\]`
 	}
-	w.WriteString(open)
-	w.WriteString(stdhtml.EscapeString(string(mn.content.Value(source))))
-	w.WriteString(closing)
+	fmt.Fprintf(w, "%s%s%s", open, stdhtml.EscapeString(mn.content.Str(source)), closing)
 	return ast.WalkSkipChildren, nil
 }
 
-func (m *mathRenderer) renderBlock(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func renderMathBlock(w io.Writer, source []byte, n ast.Node, entering bool, _ renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	mb := n.(*mathBlockNode)
 	var body strings.Builder
-	lines := mb.Lines()
-	for i := 0; i < lines.Len(); i++ {
-		line := lines.At(i)
-		body.Write(line.Value(source))
+	for _, seg := range mb.Source() {
+		body.Write(seg.Bytes(source))
 	}
 	content := strings.TrimRight(body.String(), "\n")
 	if !mb.closed {
-		w.WriteString(stdhtml.EscapeString(mb.opener + "\n" + content))
-		w.WriteByte('\n')
+		fmt.Fprintf(w, "%s\n", stdhtml.EscapeString(mb.opener+"\n"+content))
 		return ast.WalkSkipChildren, nil
 	}
-	w.WriteString(stdhtml.EscapeString(`\[` + content + `\]`))
-	w.WriteByte('\n')
+	fmt.Fprintf(w, "%s\n", stdhtml.EscapeString(`\[`+content+`\]`))
 	return ast.WalkSkipChildren, nil
 }

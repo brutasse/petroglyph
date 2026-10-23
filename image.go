@@ -3,13 +3,13 @@ package petroglyph
 import (
 	"fmt"
 	stdhtml "html"
+	"io"
 	"regexp"
 
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer"
-	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/renderer"
+	"github.com/yuin/goldmark/v2/text"
 )
 
 // GitHub's explicit image sizing is not CommonMark; parse the syntax into a
@@ -21,17 +21,23 @@ var sizedImageMatch = regexp.MustCompile(`^!\[([^\]]*)\]\(([^\s()]+) =([0-9]*)x(
 
 type sizedImageNode struct {
 	ast.BaseInline
-	alt, url, width, height []byte
+	alt, url, width, height string
 }
 
 var kindSizedImage = ast.NewNodeKind("SizedImage")
 
 func (n *sizedImageNode) Kind() ast.NodeKind { return kindSizedImage }
 
-func (n *sizedImageNode) Dump(source []byte, level int) {
-	ast.DumpHelper(n, source, level, map[string]string{
-		"URL": string(n.url), "Width": string(n.width), "Height": string(n.height),
-	}, nil)
+func (n *sizedImageNode) Dump(_ []byte) *ast.NodeDump {
+	return ast.NewNodeDump(n, map[string]any{
+		"URL": n.url, "Width": n.width, "Height": n.height,
+	})
+}
+
+func newSizedImageNode(alt, url, width, height string) *sizedImageNode {
+	n := &sizedImageNode{alt: alt, url: url, width: width, height: height}
+	n.Init(n)
+	return n
 }
 
 type sizedImageParser struct{}
@@ -45,28 +51,22 @@ func (sizedImageParser) Parse(parent ast.Node, block text.Reader, pc parser.Cont
 		return nil
 	}
 	block.Advance(len(m[0]))
-	return &sizedImageNode{alt: m[1], url: m[2], width: m[3], height: m[4]}
+	return newSizedImageNode(string(m[1]), string(m[2]), string(m[3]), string(m[4]))
 }
 
-type sizedImageRenderer struct{}
-
-func (s *sizedImageRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	reg.Register(kindSizedImage, s.render)
-}
-
-func (s *sizedImageRenderer) render(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func renderSizedImage(w io.Writer, _ []byte, n ast.Node, entering bool, _ renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	ni := n.(*sizedImageNode)
 	fmt.Fprintf(w, `<img src="%s" alt="%s"`,
-		stdhtml.EscapeString(string(ni.url)), stdhtml.EscapeString(string(ni.alt)))
-	if len(ni.width) > 0 {
+		stdhtml.EscapeString(ni.url), stdhtml.EscapeString(ni.alt))
+	if ni.width != "" {
 		fmt.Fprintf(w, ` width="%s"`, ni.width)
 	}
-	if len(ni.height) > 0 {
+	if ni.height != "" {
 		fmt.Fprintf(w, ` height="%s"`, ni.height)
 	}
-	w.WriteString(`>`)
+	fmt.Fprintf(w, `>`)
 	return ast.WalkSkipChildren, nil
 }

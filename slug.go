@@ -3,23 +3,28 @@ package petroglyph
 import (
 	"strings"
 
-	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/v2/ast"
 )
 
-// headingText returns the heading's visible text as rendered: the text
-// nodes of its inline subtree concatenated (links, autolinks, code spans
-// and image alts reduce to their child text), line breaks as single
-// spaces. Nodes without text children contribute nothing: math spans and
-// raw HTML hold source segments, emoji and footnote references hold none.
+// headingText returns the heading's visible text as rendered: the text nodes
+// of its inline subtree concatenated (links, autolinks and image alts reduce
+// to their child text), line breaks as single spaces. A code span carries its
+// text in the node rather than in child text nodes, and that text is literal
+// source, so it is read undecoded — "`a &amp; b`" slugs as "a-amp-b". Nodes
+// without text contribute nothing: math spans and raw HTML hold source
+// segments, emoji and footnote references hold none.
 func headingText(h *ast.Heading, source []byte) string {
 	var b strings.Builder
 	_ = ast.Walk(h, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if entering {
-			if t, ok := n.(*ast.Text); ok {
-				b.Write(t.Segment.Value(source))
+			switch t := n.(type) {
+			case *ast.Text:
+				b.WriteString(t.Value.Value(source))
 				if t.SoftLineBreak() || t.HardLineBreak() {
 					b.WriteByte(' ')
 				}
+			case *ast.CodeSpan:
+				b.WriteString(t.Value.Str(source))
 			}
 		}
 		return ast.WalkContinue, nil
