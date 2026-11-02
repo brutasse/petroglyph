@@ -7,7 +7,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/yuin/goldmark-emoji/v2 v2.0.2
 	github.com/yuin/goldmark/v2 v2.1.8
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 )
 
 require (
